@@ -3,8 +3,9 @@
   ─────────────────────────────────────────────────────
   Hardware : 6 panels wide × 2 tall  (192 × 32 px)
 
-  ROW 1 (y =  0..15) : Event name      — STATIC, centred
-  ROW 2 (y = 16..31) : TeamA vs TeamB  — STATIC, centred
+  Physical top    (y = 16..31) : Event name      — STATIC, centred
+  Physical bottom (y =  0..15) : TeamA vs TeamB  — STATIC, centred
+  (DMD32 with DISPLAYS_DOWN=2 maps y=0 to the bottom panel)
 
   Auto-size order (both rows):
     1. Arial_Black_16 (16 px) — try first
@@ -128,7 +129,7 @@ void checkNewData() {
     if (eventChanged) {
         strncpy(eventText, rxBuf.eventName, 32);
         eventText[32] = '\0';
-        drawRow(eventText, 0);
+        drawRow(eventText, 16);   // physical top row
         Serial.print("Event: "); Serial.println(eventText);
     }
     if (teamAChanged || teamBChanged) {
@@ -136,7 +137,7 @@ void checkNewData() {
         strncpy(teamBText, rxBuf.teamB, 15); teamBText[15] = '\0';
         char buf[35];
         snprintf(buf, sizeof(buf), "%s vs %s", teamAText, teamBText);
-        drawRow(buf, 16);
+        drawRow(buf, 0);          // physical bottom row
         Serial.print("Teams: "); Serial.println(buf);
     }
 }
@@ -148,16 +149,16 @@ void setup() {
 
     // Startup splash
     dmd.clearScreen(true);
-    drawRow("SLAVE1", 0);
-    drawRow("V1.0",   16);
+    drawRow("SLAVE1", 16);   // physical top
+    drawRow("V1.0",    0);   // physical bottom
     waitMs(1200);
 
     // Default display — shown until first N packet arrives
     dmd.clearScreen(true);
-    drawRow(eventText, 0);     // "WAITING"
+    drawRow(eventText, 16);   // "WAITING"   — physical top
     char defTeam[35];
     snprintf(defTeam, sizeof(defTeam), "%s vs %s", teamAText, teamBText);
-    drawRow(defTeam, 16);      // "TEAM A vs TEAM B"
+    drawRow(defTeam, 0);      // "TEAM A vs TEAM B" — physical bottom
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
