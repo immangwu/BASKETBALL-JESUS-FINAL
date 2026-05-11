@@ -8,7 +8,7 @@
 
   Auto-size order for ROW 2:
     1. Arial_Black_16 (16 px tall) — try first
-    2. Arial14        (14 px tall) — if team string too wide for above
+    2. Arial_14        (14 px tall) — if team string too wide for above
     3. SystemFont5x7  ( 7 px tall) — fallback for very long names
   Text is centred horizontally and vertically within the 16-px row.
 
@@ -17,7 +17,7 @@
 
 #include <DMD32.h>
 #include "fonts/Arial_black_16.h"
-#include "fonts/Arial14.h"
+#include "fonts/Arial_14.h"      // array name inside: Arial_14
 #include "fonts/SystemFont5x7.h"
 #include <esp_now.h>
 #include <WiFi.h>
@@ -104,8 +104,8 @@ void showTeamRow() {
 
     dmd.selectFont(Arial_Black_16);
     if (strPixelWidth(buf, len) > DISPLAY_W) {
-        dmd.selectFont(Arial14);
-        chosenFont = Arial14;
+        dmd.selectFont(Arial_14);
+        chosenFont = Arial_14;
         fontH      = 14;
         if (strPixelWidth(buf, len) > DISPLAY_W) {
             dmd.selectFont(SystemFont5x7);
