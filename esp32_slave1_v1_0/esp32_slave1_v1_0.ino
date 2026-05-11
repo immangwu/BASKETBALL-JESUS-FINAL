@@ -17,7 +17,7 @@
 
 #include <DMD32.h>
 #include "fonts/Arial_black_16.h"
-#include "fonts/Arial_14.h"      // array name inside: Arial_14
+#include "fonts/Arial14.h"       // array name inside: Arial_14
 #include "fonts/SystemFont5x7.h"
 #include <esp_now.h>
 #include <WiFi.h>
