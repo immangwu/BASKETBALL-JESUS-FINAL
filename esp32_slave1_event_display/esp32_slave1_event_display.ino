@@ -1,15 +1,10 @@
 /*
-  Slave 1 — Event Title (always scrolling) + Team Matchup (static)
-  6 panels wide × 2 tall (192 × 32 px)
+  Slave 1 — Event Name Scroll
+  6 panels wide × 1 tall (192 × 16 px)
 
-  TOP ROW    (y= 0–15): event name  — always scrolling
-  BOTTOM ROW (y=16–31): TeamA vs TeamB — static, updates only on OK press
-
-  WHY THIS DOES NOT CRASH WITH WIFI:
-    triggerScan() ISR does ONE thing: needScan = true  (single RAM write).
-    A RAM write never needs the flash cache — safe from any ISR, always.
-    scanDisplayBySPI() runs in loop() context where flash is always available.
-    This works regardless of whether the DMD32 library has IRAM_ATTR or not.
+  NO TIMER ISR — avoids the WiFi + flash-cache crash completely.
+  scanDisplayBySPI() is called directly from loop() every ~300 µs
+  using micros() polling. Loop context always has flash access — no crash.
 */
 
 #include <DMD32.h>
@@ -19,21 +14,23 @@
 #include "esp_wifi.h"
 
 #define DISPLAYS_ACROSS 6
-#define DISPLAYS_DOWN   2          // 6 × 2 panels = 192 × 32 px
+#define DISPLAYS_DOWN   1
 DMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
 
-// ── Timer ISR — flag only ──────────────────────────────────────────────────────
-hw_timer_t*   timer    = NULL;
-volatile bool needScan = false;
+// ── Scan polling — replaces timer ISR ─────────────────────────────────────────
+unsigned long lastScan = 0;
 
-// ISR body is one RAM write — no flash access, no crash possible.
-void IRAM_ATTR triggerScan() {
-    needScan = true;
+void scanIfNeeded() {
+    if ((long)(micros() - lastScan) >= 300) {
+        dmd.scanDisplayBySPI();
+        lastScan = micros();
+    }
 }
 
-// Call from loop to service the pending scan.
-void scanPoll() {
-    if (needScan) { needScan = false; dmd.scanDisplayBySPI(); }
+// Use instead of delay() so the display keeps refreshing
+void waitMs(long ms) {
+    long end = millis() + ms;
+    while ((long)(millis() - end) < 0) scanIfNeeded();
 }
 
 // ── Data struct (must match master exactly) ────────────────────────────────────
@@ -57,7 +54,6 @@ typedef struct __attribute__((packed)) {
 BoardData     rxBuf;
 volatile bool newData   = false;
 char          eventText[33] = "WAITING";
-char          teamText[35]  = "";     // "TeamA vs TeamB" — max 34 chars
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     if (len == sizeof(BoardData)) {
@@ -66,69 +62,32 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     }
 }
 
-// ── Draw helpers ───────────────────────────────────────────────────────────────
-void drawBottomRow() {
-    int w = 32 * DISPLAYS_ACROSS;
-    dmd.selectFont(Arial_Black_16);
-    dmd.drawFilledBox(0, 16, w - 1, 31, GRAPHICS_INVERSE);   // clear bottom row
-    if (strlen(teamText) > 0)
-        dmd.drawString(0, 16, teamText, strlen(teamText), GRAPHICS_NORMAL);
-}
-
-// ── Check for new data ─────────────────────────────────────────────────────────
-// Returns true if event name changed (scroll must restart).
-// Team change redraws bottom row without touching the scroll.
+// Returns true if event name changed (restart scroll)
 bool checkNewData() {
     if (!newData) return false;
     newData = false;
-
-    bool eventChanged = (strncmp(eventText, rxBuf.eventName, 32) != 0);
-
-    char newTeam[35];
-    snprintf(newTeam, sizeof(newTeam), "%s vs %s", rxBuf.teamA, rxBuf.teamB);
-    bool teamChanged = (strcmp(teamText, newTeam) != 0);
-
-    if (eventChanged) {
-        strncpy(eventText, rxBuf.eventName, 32);
-        eventText[32] = '\0';
-    }
-    if (teamChanged) {
-        strncpy(teamText, newTeam, 34);
-        teamText[34] = '\0';
-        drawBottomRow();
-    }
-    return eventChanged;
-}
-
-// delay-replacement: keeps scanning while waiting
-void waitMs(long ms) {
-    long end = millis() + ms;
-    while (millis() < end) scanPoll();
+    if (strncmp(eventText, rxBuf.eventName, 32) == 0) return false;
+    strncpy(eventText, rxBuf.eventName, 32);
+    eventText[32] = '\0';
+    Serial.print("Event: "); Serial.println(eventText);
+    return true;
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    delay(500);
+    waitMs(500);
 
-    // Timer — identical to working P1_LED_Scrolling reference
-    uint8_t cpuClock = ESP.getCpuFreqMHz();
-    timer = timerBegin(0, cpuClock, true);
-    timerAttachInterrupt(timer, &triggerScan, true);
-    timerAlarmWrite(timer, 300, true);
-    timerAlarmEnable(timer);
-    delay(500);
-
-    // Startup splash
+    // Show startup message (scan runs via waitMs)
     dmd.clearScreen(true);
     dmd.selectFont(Arial_Black_16);
-    dmd.drawString(0, 0,  "SLAVE1", 6, GRAPHICS_NORMAL);
-    dmd.drawString(0, 16, "READY",  5, GRAPHICS_NORMAL);
+    dmd.drawString(0, 0, "SLAVE1", 6, GRAPHICS_NORMAL);
     waitMs(1200);
 
     dmd.clearScreen(true);
     dmd.selectFont(Arial_Black_16);
     dmd.drawString(0, 0, "WAITING", 7, GRAPHICS_NORMAL);
+    waitMs(200);
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
@@ -149,7 +108,7 @@ void setup() {
 
 // ── Loop ───────────────────────────────────────────────────────────────────────
 void loop() {
-    scanPoll();
+    scanIfNeeded();
 
     char buf[33];
     strncpy(buf, eventText, 32);
@@ -158,20 +117,22 @@ void loop() {
     if (len == 0) { waitMs(100); return; }
 
     dmd.selectFont(Arial_Black_16);
+    dmd.clearScreen(true);
+    waitMs(500);
 
-    // Begin scroll on top row (y=0). Bottom row is never touched here.
+    // Start marquee — same pattern as reference P1_LED_Scrolling
     dmd.drawMarquee(buf, len, (32 * DISPLAYS_ACROSS) - 1, 0);
 
     long    timer_1    = millis();
     boolean scrollDone = false;
 
     while (!scrollDone) {
-        scanPoll();                          // service display scan
+        scanIfNeeded();
         if ((millis() - timer_1) >= 40) {
             scrollDone = dmd.stepMarquee(-1, 0);
             timer_1    = millis();
         }
-        if (checkNewData()) return;          // event changed → restart scroll
+        if (checkNewData()) return;   // new event name → restart
     }
-    // Scroll complete → loop() restarts, scrolls again. No clearScreen → bottom row intact.
+    // scroll done → loop() restarts → scrolls again
 }
