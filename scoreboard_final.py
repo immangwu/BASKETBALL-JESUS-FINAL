@@ -486,9 +486,9 @@ class ScoreboardApp(QMainWindow):
 
     # ── State ──────────────────────────────────────────────────────────────
     def _init_state(self):
-        self.event_name    = "STATE LEVEL BASKETBALL CHAMPIONSHIP 2026"
-        self.team_a        = "CHENNAI TIGERS"
-        self.team_b        = "MUMBAI HAWKS"
+        self.event_name    = "BASKETBALL 2026"
+        self.team_a        = "TEAM A"
+        self.team_b        = "TEAM B"
         self.score_a       = 0
         self.score_b       = 0
         self.fouls_a       = 0
@@ -507,7 +507,6 @@ class ScoreboardApp(QMainWindow):
         self.font_clock    = 3
         self.font_foul     = 2
         self.font_shot     = 2
-        self.event_scroll_mode = False   # False = Static (16 char limit), True = Scroll (64 char limit)
         self.qtr_mins      = DEFAULT_QTR_MIN
         self.serial_port   = None
         self.port          = "/dev/ttyUSB0"
@@ -596,7 +595,7 @@ class ScoreboardApp(QMainWindow):
         top.addWidget(ev_lbl)
 
         self.event_edit = QLineEdit(self.event_name)
-        self.event_edit.setMaxLength(16)   # 16 chars in static mode; 64 in scroll mode
+        self.event_edit.setMaxLength(16)
         self.event_edit.setStyleSheet(
             f"background:{CARD};border:1px solid {BORDER};color:{TEXT};"
             f"font-size:15px;font-weight:bold;border-radius:8px;padding:8px;"
@@ -608,25 +607,6 @@ class ScoreboardApp(QMainWindow):
         kb_ev = self._kb_btn()
         kb_ev.clicked.connect(self._open_kb_event)
         top.addWidget(kb_ev)
-
-        # ── Static / Scroll mode toggle ────────────────────────────────────
-        self.ev_static_btn = QPushButton("📌  STATIC")
-        self.ev_static_btn.setFixedHeight(46)
-        self.ev_static_btn.setStyleSheet(
-            f"background:#166534;color:#bbf7d0;font-weight:bold;font-size:13px;"
-            f"border-radius:8px;border:none;min-width:90px;"
-        )
-        self.ev_static_btn.clicked.connect(lambda: self._set_event_mode(False))
-        top.addWidget(self.ev_static_btn)
-
-        self.ev_scroll_btn = QPushButton("↔  SCROLL")
-        self.ev_scroll_btn.setFixedHeight(46)
-        self.ev_scroll_btn.setStyleSheet(
-            f"background:{BTN_BG};color:{TEXT2};font-weight:bold;font-size:13px;"
-            f"border-radius:8px;border:1px solid {BORDER};min-width:90px;"
-        )
-        self.ev_scroll_btn.clicked.connect(lambda: self._set_event_mode(True))
-        top.addWidget(self.ev_scroll_btn)
 
         ok_ev = self._ok_btn()
         ok_ev.setToolTip("Send event title to the P10 display now")
@@ -689,7 +669,7 @@ class ScoreboardApp(QMainWindow):
         nr = QHBoxLayout()
         nr.setSpacing(6)
         name_edit = QLineEdit(tname)
-        name_edit.setMaxLength(15)
+        name_edit.setMaxLength(12)
         name_edit.setAlignment(Qt.AlignCenter)
         name_edit.setStyleSheet(
             f"background:#0f172a;border:2px solid {BORDER};color:{TEXT};"
@@ -1042,29 +1022,6 @@ class ScoreboardApp(QMainWindow):
         cl.setContentsMargins(24, 20, 24, 20)
         cl.setSpacing(14)
 
-        # ── Mode row ──────────────────────────────────────────────────────
-        cl.addWidget(self._section_lbl("DISPLAY MODE"))
-        mode_row = QHBoxLayout()
-        mode_row.setSpacing(10)
-
-        on_sty  = (f"background:#166534;color:#bbf7d0;font-weight:bold;font-size:15px;"
-                   f"border-radius:8px;border:none;min-width:130px;min-height:50px;")
-        off_sty = (f"background:{BTN_BG};color:{TEXT2};font-weight:bold;font-size:15px;"
-                   f"border-radius:8px;border:1px solid {BORDER};min-width:130px;min-height:50px;")
-
-        self.disp_static_btn = QPushButton("📌  STATIC")
-        self.disp_static_btn.setStyleSheet(on_sty)   # default: static active
-        self.disp_static_btn.clicked.connect(lambda: self._set_event_mode(False))
-
-        self.disp_scroll_btn = QPushButton("↔  SCROLL")
-        self.disp_scroll_btn.setStyleSheet(off_sty)
-        self.disp_scroll_btn.clicked.connect(lambda: self._set_event_mode(True))
-
-        mode_row.addWidget(self.disp_static_btn)
-        mode_row.addWidget(self.disp_scroll_btn)
-        mode_row.addStretch()
-        cl.addLayout(mode_row)
-
         # ── Event name edit ───────────────────────────────────────────────
         cl.addWidget(self._section_lbl("EVENT TITLE"))
         nr = QHBoxLayout()
@@ -1125,12 +1082,8 @@ class ScoreboardApp(QMainWindow):
     def _update_char_count(self):
         if not hasattr(self, "disp_char_lbl"):
             return
-        limit = 64 if self.event_scroll_mode else 16
-        used  = len(self.event_name)
-        self.disp_char_lbl.setText(
-            f"{used} / {limit} characters  "
-            f"({'scroll mode — no display limit' if self.event_scroll_mode else 'static mode — fits 6-panel display'})"
-        )
+        used = len(self.event_name)
+        self.disp_char_lbl.setText(f"{used} / 16 characters  (fits 6-panel display)")
 
     # ── Tab 3: Debug ───────────────────────────────────────────────────────
     def _make_debug_tab(self):
@@ -1312,37 +1265,9 @@ class ScoreboardApp(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────
     # Keyboard / Dialog openers
     # ─────────────────────────────────────────────────────────────────────
-    def _set_event_mode(self, scroll: bool):
-        self.event_scroll_mode = scroll
-        max_len = 64 if scroll else 16
-        self.event_edit.setMaxLength(max_len)
-        if not scroll and len(self.event_name) > 16:
-            self.event_name = self.event_name[:16]
-            self.event_edit.setText(self.event_name)
-        on_top  = (f"background:#166534;color:#bbf7d0;font-weight:bold;font-size:13px;"
-                   f"border-radius:8px;border:none;min-width:90px;")
-        off_top = (f"background:{BTN_BG};color:{TEXT2};font-weight:bold;font-size:13px;"
-                   f"border-radius:8px;border:1px solid {BORDER};min-width:90px;")
-        self.ev_static_btn.setStyleSheet(off_top if scroll else on_top)
-        self.ev_scroll_btn.setStyleSheet(on_top  if scroll else off_top)
-        # Keep Display tab buttons in sync
-        on_tab  = (f"background:#166534;color:#bbf7d0;font-weight:bold;font-size:15px;"
-                   f"border-radius:8px;border:none;min-width:130px;min-height:50px;")
-        off_tab = (f"background:{BTN_BG};color:{TEXT2};font-weight:bold;font-size:15px;"
-                   f"border-radius:8px;border:1px solid {BORDER};min-width:130px;min-height:50px;")
-        if hasattr(self, "disp_static_btn"):
-            self.disp_static_btn.setStyleSheet(off_tab if scroll else on_tab)
-            self.disp_scroll_btn.setStyleSheet(on_tab  if scroll else off_tab)
-            if hasattr(self, "disp_event_edit"):
-                self.disp_event_edit.setMaxLength(max_len)
-                self._update_char_count()
-        self._log(f"Event display mode: {'SCROLL' if scroll else 'STATIC'}")
-        # No auto-send — user must press SEND
-
     def _open_kb_event(self):
-        max_len = 64 if self.event_scroll_mode else 16
         text, ok = VirtualKeyboard.getText(
-            self, "Enter Event Title", self.event_name, max_len)
+            self, "Enter Event Title", self.event_name, 16)
         if ok:
             self.event_name = text
             self.event_edit.setText(text)
@@ -1355,9 +1280,8 @@ class ScoreboardApp(QMainWindow):
 
     def _open_kb_event_disp(self):
         """Keyboard opener from the Display tab."""
-        max_len = 64 if self.event_scroll_mode else 16
         text, ok = VirtualKeyboard.getText(
-            self, "Enter Event Title", self.event_name, max_len)
+            self, "Enter Event Title", self.event_name, 16)
         if ok:
             self.event_name = text
             self.event_edit.setText(text)
@@ -1369,7 +1293,7 @@ class ScoreboardApp(QMainWindow):
     def _open_kb_team(self, side):
         current = self.team_a if side == "A" else self.team_b
         text, ok = VirtualKeyboard.getText(
-            self, f"Enter Team {side} Name", current, 15)
+            self, f"Enter Team {side} Name", current, 12)
         if ok:
             setattr(self, f"team_{side.lower()}", text)
             edit = self.team_a_edit if side == "A" else self.team_b_edit
@@ -1684,21 +1608,19 @@ class ScoreboardApp(QMainWindow):
     # Packet TX  (split so _tick never sends the N packet)
     # ─────────────────────────────────────────────────────────────────────
     def _send_name(self):
-        """Send only the N packet (event title + teams + scroll mode).
+        """Send only the N packet (event title + teams).
         Called manually via the Send-to-Display tab SEND button."""
-        n_pkt = (f"N,{self.event_name},{self.team_a},{self.team_b},"
-                 f"{1 if self.event_scroll_mode else 0}\n")
+        n_pkt = f"N,{self.event_name},{self.team_a},{self.team_b},0\n"
         if not self.serial_port or not self.serial_port.is_open:
             self._log("⚠ Serial not connected — N packet not sent", "warn")
             return
         try:
             self.serial_port.write(n_pkt.encode())
             self.serial_port.flush()
-            mode_str = "SCROLL" if self.event_scroll_mode else "STATIC"
             self._log(f"TX N → {n_pkt.strip()}", "success")
             if hasattr(self, "disp_status_lbl"):
                 self.disp_status_lbl.setText(
-                    f'✓  Sent: "{self.event_name}"  [{mode_str}]')
+                    f'✓  Sent: "{self.event_name}"')
                 self.disp_status_lbl.setStyleSheet(
                     f"color:{GREEN};font-size:14px;font-weight:bold;"
                     f"padding:10px;background:{CARD};border-radius:8px;")

@@ -1,33 +1,32 @@
 /*
-  Slave 1 v1.0
+  Slave 1 v1.0 — Static Display
   ─────────────────────────────────────────────────────
   Hardware : 6 panels wide × 2 tall  (192 × 32 px)
 
-  ROW 1 (y =  0..15) : Event name      — always scrolling
-  ROW 2 (y = 16..31) : TeamA vs TeamB  — static, auto-sized & centred
+  ROW 1 (y =  0..15) : Event name      — STATIC, centred
+  ROW 2 (y = 16..31) : TeamA vs TeamB  — STATIC, centred
 
-  Auto-size order for ROW 2:
-    1. Arial_Black_16 (16 px tall) — try first
-    2. Arial_14        (14 px tall) — if team string too wide for above
-    3. SystemFont5x7  ( 7 px tall) — fallback for very long names
-  Text is centred horizontally and vertically within the 16-px row.
+  Auto-size order (both rows):
+    1. Arial_Black_16 (16 px) — try first
+    2. Arial_14       (14 px) — if too wide
+    3. SystemFont5x7  ( 7 px) — fallback
 
-  No timer ISR — scanDisplayBySPI() polled via micros() from loop.
+  No scrolling. No timer ISR.
+  scanDisplayBySPI() polled via micros() from loop.
+  Both rows update only when N packet arrives (OK press).
 */
 
 #include <DMD32.h>
 #include "fonts/Arial_black_16.h"
-#include "fonts/Arial14.h"       // array name inside: Arial_14
+#include "fonts/Arial14.h"
 #include "fonts/SystemFont5x7.h"
 #include <esp_now.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
 
 #define DISPLAYS_ACROSS 6
-#define DISPLAYS_DOWN   2          // 6 × 2 panels = 192 × 32 px
-#define DISPLAY_W       (32 * DISPLAYS_ACROSS)   // 192
-#define ROW2_Y          16
-#define ROW2_H          16         // pixels tall
+#define DISPLAYS_DOWN   2
+#define DISPLAY_W       (32 * DISPLAYS_ACROSS)   // 192 px
 
 DMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
 
@@ -75,9 +74,8 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     }
 }
 
-// ── String pixel-width helper ──────────────────────────────────────────────────
-// Must be called AFTER dmd.selectFont() for the font you want to measure.
-// Matches drawString() internal accounting: each char + 1px gap.
+// ── String width helper ────────────────────────────────────────────────────────
+// Call after dmd.selectFont(). Matches drawString() char+gap accounting.
 int strPixelWidth(const char* s, int len) {
     int w = 0;
     for (int i = 0; i < len; i++) {
@@ -87,50 +85,40 @@ int strPixelWidth(const char* s, int len) {
     return w;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  showTeamRow()
-//  Auto-selects the largest font that fits "TeamA vs TeamB" in 192 px.
-//  Centres the text horizontally and vertically in ROW 2 (y=16..31).
-//  Only clears y=16..31 — ROW 1 scroll is completely unaffected.
-// ══════════════════════════════════════════════════════════════════════════════
-void showTeamRow() {
-    char buf[35];
-    snprintf(buf, sizeof(buf), "%s vs %s", teamAText, teamBText);
-    int len = strlen(buf);
+// ── Draw one row: auto-size font, centre horizontally & vertically ─────────────
+// y0 = top of the 16-px row (0 for ROW1, 16 for ROW2)
+void drawRow(const char* text, int y0) {
+    int len = strlen(text);
 
-    // ── Pick largest font that fits ───────────────────────────────────────────
-    const uint8_t* chosenFont = Arial_Black_16;
-    int            fontH      = 16;
+    // Pick largest font that fits in 192 px
+    const uint8_t* font   = Arial_Black_16;
+    int            fontH  = 16;
 
     dmd.selectFont(Arial_Black_16);
-    if (strPixelWidth(buf, len) > DISPLAY_W) {
+    if (strPixelWidth(text, len) > DISPLAY_W) {
         dmd.selectFont(Arial_14);
-        chosenFont = Arial_14;
-        fontH      = 14;
-        if (strPixelWidth(buf, len) > DISPLAY_W) {
+        font  = Arial_14;
+        fontH = 14;
+        if (strPixelWidth(text, len) > DISPLAY_W) {
             dmd.selectFont(SystemFont5x7);
-            chosenFont = SystemFont5x7;
-            fontH      = 7;
+            font  = SystemFont5x7;
+            fontH = 7;
         }
     }
 
-    // ── Calculate centred position ────────────────────────────────────────────
-    int textW = strPixelWidth(buf, len);
+    int textW = strPixelWidth(text, len);
     int drawX = max(0, (DISPLAY_W - textW) / 2);
-    int drawY = ROW2_Y + (ROW2_H - fontH) / 2;   // vertical centre in 16-px row
+    int drawY = y0 + (16 - fontH) / 2;   // vertical centre in 16-px row
 
-    // ── Clear ROW 2 only, then draw ───────────────────────────────────────────
-    dmd.drawFilledBox(0, ROW2_Y, DISPLAY_W - 1, ROW2_Y + ROW2_H - 1, GRAPHICS_INVERSE);
-    dmd.selectFont(chosenFont);
-    dmd.drawString(drawX, drawY, buf, len, GRAPHICS_NORMAL);
-
-    Serial.printf("Team row [font %dpx, x=%d, y=%d]: %s\n",
-                  fontH, drawX, drawY, buf);
+    // Clear only this row, then draw
+    dmd.drawFilledBox(0, y0, DISPLAY_W - 1, y0 + 15, GRAPHICS_INVERSE);
+    dmd.selectFont(font);
+    dmd.drawString(drawX, drawY, text, len, GRAPHICS_NORMAL);
 }
 
 // ── Check for new data ─────────────────────────────────────────────────────────
-bool checkNewData() {
-    if (!newData) return false;
+void checkNewData() {
+    if (!newData) return;
     newData = false;
 
     bool eventChanged = (strncmp(eventText, rxBuf.eventName, 32) != 0);
@@ -140,14 +128,17 @@ bool checkNewData() {
     if (eventChanged) {
         strncpy(eventText, rxBuf.eventName, 32);
         eventText[32] = '\0';
+        drawRow(eventText, 0);
         Serial.print("Event: "); Serial.println(eventText);
     }
     if (teamAChanged || teamBChanged) {
         strncpy(teamAText, rxBuf.teamA, 15); teamAText[15] = '\0';
         strncpy(teamBText, rxBuf.teamB, 15); teamBText[15] = '\0';
-        showTeamRow();       // update ROW 2 only — scroll on ROW 1 unaffected
+        char buf[35];
+        snprintf(buf, sizeof(buf), "%s vs %s", teamAText, teamBText);
+        drawRow(buf, 16);
+        Serial.print("Teams: "); Serial.println(buf);
     }
-    return eventChanged;
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
@@ -155,18 +146,18 @@ void setup() {
     Serial.begin(115200);
     waitMs(500);
 
+    // Startup splash
     dmd.clearScreen(true);
-    dmd.selectFont(Arial_Black_16);
-    dmd.drawString(0, 0,  "SLAVE1", 6, GRAPHICS_NORMAL);
-    dmd.drawString(0, 16, "V1.0",   4, GRAPHICS_NORMAL);
+    drawRow("SLAVE1", 0);
+    drawRow("V1.0",   16);
     waitMs(1200);
 
-    // Show default team row immediately so ROW 2 is never blank
+    // Default display — shown until first N packet arrives
     dmd.clearScreen(true);
-    dmd.selectFont(Arial_Black_16);
-    dmd.drawString(0, 0, "WAITING", 7, GRAPHICS_NORMAL);
-    showTeamRow();   // draws "TEAM A vs TEAM B" on ROW 2
-    waitMs(200);
+    drawRow(eventText, 0);     // "WAITING"
+    char defTeam[35];
+    snprintf(defTeam, sizeof(defTeam), "%s vs %s", teamAText, teamBText);
+    drawRow(defTeam, 16);      // "TEAM A vs TEAM B"
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
@@ -178,42 +169,15 @@ void setup() {
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW init FAILED");
         dmd.clearScreen(true);
-        dmd.drawString(0, 0, "ERR", 3, GRAPHICS_NORMAL);
+        drawRow("ERR", 0);
     } else {
         esp_now_register_recv_cb(onReceive);
-        Serial.println("Slave 1 v1.0 ready — waiting for master");
+        Serial.println("Slave 1 v1.0 ready");
     }
 }
 
-// ── Loop — ROW 1 scroll only ───────────────────────────────────────────────────
+// ── Loop ───────────────────────────────────────────────────────────────────────
 void loop() {
     scanIfNeeded();
-
-    char buf[33];
-    strncpy(buf, eventText, 32);
-    buf[32] = '\0';
-    int len = strlen(buf);
-    if (len == 0) { waitMs(100); return; }
-
-    dmd.selectFont(Arial_Black_16);
-
-    // Clear ROW 1 only — ROW 2 stays intact
-    dmd.drawFilledBox(0, 0, DISPLAY_W - 1, 15, GRAPHICS_INVERSE);
-    waitMs(300);
-
-    // Marquee on ROW 1 (y=0) — never touches y=16..31
-    dmd.drawMarquee(buf, len, DISPLAY_W - 1, 0);
-
-    long    timer_1    = millis();
-    boolean scrollDone = false;
-
-    while (!scrollDone) {
-        scanIfNeeded();
-        if ((millis() - timer_1) >= 40) {
-            scrollDone = dmd.stepMarquee(-1, 0);
-            timer_1    = millis();
-        }
-        if (checkNewData()) return;   // event name changed → restart scroll
-    }
-    // scroll done → loop restarts → scrolls again
+    checkNewData();
 }
