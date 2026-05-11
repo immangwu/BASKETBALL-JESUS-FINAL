@@ -1,15 +1,12 @@
 /*
-  Slave 1 — Event Name Display
-  6 panels wide x 1 tall (192 x 16 px)  |  Font: Arial_Black_16
+  Slave 1 — Event Title + Team Matchup
+  6 panels wide × 2 tall (192 × 32 px)
 
-  Timer ISR drives the scan — safe with WiFi because scanDisplayBySPI()
-  is IRAM_ATTR (lives in internal RAM, not flash), so WiFi temporarily
-  disabling the flash cache does NOT crash the ISR.
+  Top row    (y= 0) : event name  — always scrolling
+  Bottom row (y=16) : "TeamA vs TeamB" — static, updates only on OK press
 
-  Behaviour:
-    STATIC mode  — draw once, hold forever until OK is pressed again
-    SCROLL mode  — scroll across, hold static, scroll again, repeat
-    Both modes switch immediately when master broadcasts new data.
+  Timer ISR pattern identical to the working P1_LED_Scrolling reference.
+  scanDisplayBySPI() is IRAM_ATTR in DMD32 lib so the ISR is WiFi-safe.
 */
 
 #include <DMD32.h>
@@ -19,13 +16,11 @@
 #include "esp_wifi.h"
 
 #define DISPLAYS_ACROSS 6
-#define DISPLAYS_DOWN   1
+#define DISPLAYS_DOWN   2          // 6×2 panels = 192×32 px
 DMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
 
 // ── Timer ISR ─────────────────────────────────────────────────────────────────
-// scanOK pauses the ISR while we rewrite screen RAM (prevents torn frames).
-// The ISR itself is IRAM_ATTR; scanDisplayBySPI() is also IRAM_ATTR in DMD32.
-hw_timer_t*  timer  = NULL;
+hw_timer_t*   timer  = NULL;
 volatile bool scanOK = true;
 
 void IRAM_ATTR triggerScan() {
@@ -47,13 +42,13 @@ typedef struct __attribute__((packed)) {
     int  clockRunning;
     int  shotSecs,  shotTenths;
     int  shotRunning;
-    int  eventScroll;   // 0 = static, 1 = scroll
+    int  eventScroll;
 } BoardData;
 
 BoardData     rxBuf;
-volatile bool newData    = false;
-char          displayText[33] = "WAITING";
-bool          scrollMode      = false;
+volatile bool newData   = false;
+char          eventText[33] = "WAITING";
+char          teamText[35]  = "";      // "TeamA vs TeamB" max 15+4+15=34 chars
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     if (len == sizeof(BoardData)) {
@@ -62,53 +57,72 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-void showStatic(const char* text) {
+// ── Draw bottom row (y=16‥31) only — top row scroll is unaffected ─────────────
+void drawTeamRow() {
+    int w = 32 * DISPLAYS_ACROSS;
     scanOK = false;
-    dmd.clearScreen(true);
     dmd.selectFont(Arial_Black_16);
-    dmd.drawString(0, 0, text, strlen(text), GRAPHICS_NORMAL);
+    dmd.drawFilledBox(0, 16, w - 1, 31, GRAPHICS_INVERSE);   // clear bottom row
+    if (strlen(teamText) > 0)
+        dmd.drawString(0, 16, teamText, strlen(teamText), GRAPHICS_NORMAL);
     scanOK = true;
 }
 
-// Returns true only when eventName or scrollMode actually changed.
-// S-packet clock/score updates arrive constantly but change nothing here.
+// ── Check incoming data ────────────────────────────────────────────────────────
+// Returns true only if the event name changed (→ restart scroll).
+// Team change redraws bottom row in place without interrupting the scroll.
 bool checkNewData() {
     if (!newData) return false;
     newData = false;
-    bool newScroll   = (rxBuf.eventScroll == 1);
-    bool nameChanged = (strncmp(displayText, rxBuf.eventName, 32) != 0);
-    bool modeChanged = (newScroll != scrollMode);
-    if (!nameChanged && !modeChanged) return false;
-    strncpy(displayText, rxBuf.eventName, 32);
-    displayText[32] = '\0';
-    scrollMode = newScroll;
-    Serial.print("Event: ");
-    Serial.print(displayText);
-    Serial.println(scrollMode ? "  [SCROLL]" : "  [STATIC]");
-    return true;
+
+    bool eventChanged = (strncmp(eventText, rxBuf.eventName, 32) != 0);
+
+    char newTeam[35];
+    snprintf(newTeam, sizeof(newTeam), "%s vs %s", rxBuf.teamA, rxBuf.teamB);
+    bool teamChanged = (strcmp(teamText, newTeam) != 0);
+
+    if (eventChanged) {
+        strncpy(eventText, rxBuf.eventName, 32);
+        eventText[32] = '\0';
+    }
+    if (teamChanged) {
+        strncpy(teamText, newTeam, 34);
+        teamText[34] = '\0';
+        drawTeamRow();                // update bottom row without clearing top
+    }
+    return eventChanged;
 }
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    delay(300);
+    delay(500);
 
-    // Timer ISR — same pattern as working P1_LED_Scrolling reference.
-    // scanDisplayBySPI() is IRAM_ATTR so this is safe alongside WiFi.
+    // Timer ISR — same as working P1_LED_Scrolling reference
     uint8_t cpuClock = ESP.getCpuFreqMHz();
     timer = timerBegin(0, cpuClock, true);
     timerAttachInterrupt(timer, &triggerScan, true);
     timerAlarmWrite(timer, 300, true);
     timerAlarmEnable(timer);
+    delay(500);
 
-    showStatic("SLAVE1");
+    // Startup splash
+    scanOK = false;
+    dmd.clearScreen(true);
+    dmd.selectFont(Arial_Black_16);
+    dmd.drawString(0, 0,  "SLAVE1",   6, GRAPHICS_NORMAL);
+    dmd.drawString(0, 16, "READY",    5, GRAPHICS_NORMAL);
+    scanOK = true;
     delay(1200);
-    showStatic("WAITING");
+
+    scanOK = false;
+    dmd.clearScreen(true);
+    dmd.selectFont(Arial_Black_16);
+    dmd.drawString(0, 0,  "WAITING",  7, GRAPHICS_NORMAL);
+    scanOK = true;
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
-
     Serial.print("MAC: ");
     Serial.println(WiFi.macAddress());
 
@@ -116,7 +130,10 @@ void setup() {
 
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW init FAILED");
-        showStatic("ERR");
+        scanOK = false;
+        dmd.clearScreen(true);
+        dmd.drawString(0, 0, "ERR", 3, GRAPHICS_NORMAL);
+        scanOK = true;
     } else {
         esp_now_register_recv_cb(onReceive);
         Serial.println("Slave 1 ready — waiting for master");
@@ -125,46 +142,31 @@ void setup() {
 
 // ── Loop ───────────────────────────────────────────────────────────────────────
 void loop() {
-    checkNewData();
-
     char buf[33];
-    strncpy(buf, displayText, 32);
+    strncpy(buf, eventText, 32);
     buf[32] = '\0';
     int len = strlen(buf);
     if (len == 0) { delay(100); return; }
 
-    // ── STATIC mode ────────────────────────────────────────────────────────────
-    if (!scrollMode) {
-        showStatic(buf);
-        for (;;) {
-            if (checkNewData()) return;
-            delay(20);
-        }
-    }
-
-    // ── SCROLL mode ────────────────────────────────────────────────────────────
-    scanOK = false;
     dmd.selectFont(Arial_Black_16);
-    dmd.clearScreen(true);
+
+    // Start scroll on TOP row only (y=0). Bottom row is never touched here.
+    scanOK = false;
     dmd.drawMarquee(buf, len, (32 * DISPLAYS_ACROSS) - 1, 0);
     scanOK = true;
 
-    long    lastStep   = millis();
+    long    timer_1    = millis();
     boolean scrollDone = false;
+
     while (!scrollDone) {
-        if ((millis() - lastStep) >= 40) {
+        if ((millis() - timer_1) >= 40) {
             scanOK     = false;
             scrollDone = dmd.stepMarquee(-1, 0);
             scanOK     = true;
-            lastStep   = millis();
+            timer_1    = millis();
         }
-        if (checkNewData()) return;
+        if (checkNewData()) return;   // event name changed → restart scroll
     }
-
-    // Hold static after scroll, then loop scrolls again
-    showStatic(buf);
-    for (;;) {
-        if (checkNewData()) return;
-        delay(20);
-    }
+    // Scroll finished → loop() restarts immediately, scrolling again.
+    // No clearScreen → bottom row stays intact.
 }
