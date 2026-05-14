@@ -2,7 +2,7 @@
 #include "fonts/SystemFont5x7.h"
 #include "fonts/Arial_black_16.h"
 
-#define DISPLAYS_ACROSS 6
+#define DISPLAYS_ACROSS 1
 #define DISPLAYS_DOWN 1
 DMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
 
