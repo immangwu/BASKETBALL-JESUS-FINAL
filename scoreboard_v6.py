@@ -79,6 +79,25 @@ PIN_B_FOUL_P   = 26
 PIN_B_FOUL_M   = 9
 PIN_B_POSS     = 11
 
+# ── NEW pins  (all remaining free GPIO on the 40-pin header) ─────────────────
+#  Function              BCM   Physical   Note
+#  Quarter +1             7      26        SPI CE1 — safe as GPIO
+#  Game clock RESET       8      24        SPI CE0 — safe as GPIO
+#  Team A Timeout use     2       3        I2C SDA — safe if I2C not used
+#  Team B Timeout use     3       5        I2C SCL — safe if I2C not used
+#  YES VISIBLE           14       8        UART TX — needs UART console disabled*
+#  START MATCH           15      10        UART RX — needs UART console disabled*
+#
+#  * To free GPIO 14/15: raspi-config → Interface Options → Serial Port
+#    → "login shell over serial" = No  →  "serial hardware" = Yes  → reboot
+# ─────────────────────────────────────────────────────────────────────────────
+PIN_QTR_P      = 7    # Quarter +1         physical pin 26
+PIN_GCC_RESET  = 8    # Game clock RESET   physical pin 24
+PIN_A_TO       = 2    # Team A Timeout     physical pin 3
+PIN_B_TO       = 3    # Team B Timeout     physical pin 5
+PIN_YES_VIS    = 14   # YES VISIBLE        physical pin 8  ⚠ needs UART disabled
+PIN_START_MTH  = 15   # START MATCH        physical pin 10 ⚠ needs UART disabled
+
 DEFAULT_QTR_MIN = 10
 DEFAULT_SHOT    = 24
 MAX_FOULS       = 5
@@ -105,6 +124,12 @@ class GPIOSignals(QObject):
     b_foul_p   = pyqtSignal()
     b_foul_m   = pyqtSignal()
     b_poss     = pyqtSignal()
+    qtr_p      = pyqtSignal()
+    gcc_reset  = pyqtSignal()
+    a_to       = pyqtSignal()
+    b_to       = pyqtSignal()
+    yes_vis    = pyqtSignal()
+    start_mth  = pyqtSignal()
 
 import queue as _queue
 GPIO_OK  = False
@@ -136,6 +161,13 @@ try:
         (PIN_B_FOUL_P,   gpio_sig.b_foul_p),
         (PIN_B_FOUL_M,   gpio_sig.b_foul_m),
         (PIN_B_POSS,     gpio_sig.b_poss),
+        # new pins
+        (PIN_QTR_P,      gpio_sig.qtr_p),
+        (PIN_GCC_RESET,  gpio_sig.gcc_reset),
+        (PIN_A_TO,       gpio_sig.a_to),
+        (PIN_B_TO,       gpio_sig.b_to),
+        (PIN_YES_VIS,    gpio_sig.yes_vis),
+        (PIN_START_MTH,  gpio_sig.start_mth),
     ]
     _ok, _fail = 0, []
     for _pin, _sig in _pin_map:
@@ -600,6 +632,13 @@ class ScoreboardApp(QMainWindow):
             gpio_sig.b_foul_p:   lambda: self._delta_fouls("B", 1),
             gpio_sig.b_foul_m:   lambda: self._delta_fouls("B", -1),
             gpio_sig.b_poss:     lambda: self._set_poss("B"),
+            # new buttons
+            gpio_sig.qtr_p:      self._next_quarter,
+            gpio_sig.gcc_reset:  self._reset_clock,
+            gpio_sig.a_to:       lambda: self._add_timeout("A"),
+            gpio_sig.b_to:       lambda: self._add_timeout("B"),
+            gpio_sig.yes_vis:    self._confirm_board,
+            gpio_sig.start_mth:  self._start_match,
         }
         # QTimer polls the thread-safe queue every 30 ms in the main thread
         self._gpio_timer = QTimer()
