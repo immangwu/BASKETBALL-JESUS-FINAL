@@ -71,6 +71,7 @@ volatile bool newData   = false;
 bool          connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) {
         memcpy(&rxBuf, data, sizeof(rxBuf));
         newData = true;
@@ -86,10 +87,10 @@ void drawNumber(int secs, int tenths) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
     display.setTextSize(2);
-    display.setTextColor((secs <= 5) ? C_RED : C_BLUE);
+    display.setTextColor(C_RED);
 
     char buf[6];
-    if (secs >= 10) {
+    if (secs > 5) {
         snprintf(buf, sizeof(buf), "%d",     secs);          // "24"
     } else {
         snprintf(buf, sizeof(buf), "%d.%d",  secs, tenths);  // "2.2"

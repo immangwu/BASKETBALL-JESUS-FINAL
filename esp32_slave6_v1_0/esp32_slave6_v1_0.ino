@@ -72,6 +72,7 @@ volatile bool newData   = false;
 bool          connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) {
         memcpy(&rxBuf, data, sizeof(rxBuf));
         newData = true;
@@ -79,14 +80,12 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
 }
 
 // ── Draw bottom row ───────────────────────────────────────────────────────────
-//   Size 3 char = 18×24 px.  Cursor y=-16 shifts it up so that:
-//     char rows  0..15  →  display y = -16..-1  (clipped, not visible)
-//     char rows 16..23  →  display y =   0.. 7  (visible — bottom 8 px of digit)
-//   Display y=8..15 stays black.
+//   Full digit, size 2 (12×16 px) — fills panel height exactly.
+//   fouls 0-4 : GREEN    fouls ≥ 5 : RED
 void drawBottom(int fouls) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
-    display.setTextSize(3);
+    display.setTextSize(2);
 
     uint16_t col = (fouls >= FOULS_MAX) ? C_RED : C_GREEN;
     display.setTextColor(col);
@@ -94,9 +93,9 @@ void drawBottom(int fouls) {
     char buf[3];
     snprintf(buf, sizeof(buf), "%d", fouls);  // "0".."5"
 
-    int tw = (int)strlen(buf) * 18;
+    int tw = (int)strlen(buf) * 12;           // 12 px per char at size 2
     int tx = (64 - tw) / 2;
-    display.setCursor(tx, -16);               // shift up → bottom 8 px visible
+    display.setCursor(tx, 0);
     display.print(buf);
 }
 

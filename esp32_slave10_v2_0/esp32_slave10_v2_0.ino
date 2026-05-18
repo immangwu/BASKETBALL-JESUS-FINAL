@@ -1,12 +1,12 @@
 /*
   ╔══════════════════════════════════════════════════════════════╗
-  ║  Slave 7  v1.0  —  Fouls Team B  TOP row                    ║
+  ║  Slave 10  v2.0  —  Quarter  BOTTOM row                     ║
   ║  Hardware : 2 × P10 panels in one row  →  64 × 16 px        ║
   ╠══════════════════════════════════════════════════════════════╣
-  ║  "FB" label : size 1, top-left corner                       ║
-  ║  Foul digit : size 3 (18×24 px), cursor y=0                ║
-  ║               top 16 px here, bottom 8 px on Slave 8        ║
-  ║  GREEN (foulsB < 5)  →  RED (foulsB ≥ 5)                  ║
+  ║  Draws "Q1".."Q4" or "OT" at size 3, cursor y=-16 so the    ║
+  ║  bottom 8 px of the 24-px glyph appear on this panel.       ║
+  ║  Q and digit both size 3 (same as Slave 9 top row).         ║
+  ║  Color: YELLOW                                              ║
   ╚══════════════════════════════════════════════════════════════╝
 */
 
@@ -22,20 +22,15 @@
 #define P_C   18
 #define P_OE   4
 
-#define FOULS_MAX 5
-
 PxMATRIX display(64, 16, P_LAT, P_OE, P_A, P_B, P_C);
 
 uint8_t  display_draw_time = 30;
-uint16_t C_BLACK, C_GREEN, C_RED;
+uint16_t C_BLACK, C_YELLOW;
 
 static unsigned long lastScan = 0;
 void scanIfNeeded() {
     unsigned long now = micros();
-    if ((long)(now - lastScan) >= 2000) {
-        display.display(display_draw_time);
-        lastScan = now;
-    }
+    if ((long)(now - lastScan) >= 2000) { display.display(display_draw_time); lastScan = now; }
 }
 void waitMs(long ms) {
     long end = (long)millis() + ms;
@@ -57,23 +52,28 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
     if (len == sizeof(BoardData)) { memcpy(&rxBuf, data, sizeof(rxBuf)); newData = true; }
 }
 
-void drawTop(int fouls) {
+void getQuarterStr(int quarter, char* buf, int bufLen) {
+    if (quarter >= 5) snprintf(buf, bufLen, "OT");
+    else              snprintf(buf, bufLen, "Q%d", quarter);
+}
+
+void drawBottom(int quarter) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
-    uint16_t col = (fouls >= FOULS_MAX) ? C_RED : C_GREEN;
-
-    display.setTextSize(1);
-    display.setTextColor(col);
-    // "TEAM FOULS" = 10 chars × 6 px = 60 px → x = (64-60)/2 = 2
-    display.setCursor(2, 4);
-    display.print("TEAM FOULS");
+    display.setTextSize(3);
+    display.setTextColor(C_YELLOW);
+    char buf[4];
+    getQuarterStr(quarter, buf, sizeof(buf));
+    int tw = (int)strlen(buf) * 18;
+    display.setCursor((64 - tw) / 2, -8);  // glyph rows 8-23 visible (bottom 16 px)
+    display.print(buf);
 }
 
 void showWait() {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
     display.setTextSize(1);
-    display.setTextColor(C_GREEN);
+    display.setTextColor(C_YELLOW);
     display.setCursor(20, 4);
     display.print("WAIT");
 }
@@ -83,9 +83,8 @@ void setup() {
     Serial.begin(115200);
     display.begin(8);
     delay(100);
-    C_BLACK = display.color565(  0,   0,   0);
-    C_GREEN = display.color565(  0, 255,   0);
-    C_RED   = display.color565(255,   0,   0);  // swap to (0,0,255) if blue appears
+    C_BLACK  = display.color565(  0,   0,   0);
+    C_YELLOW = display.color565(255, 255,   0);
     display.clearDisplay();
     display.setBrightness(150);
     display.setTextWrap(false);
@@ -93,13 +92,13 @@ void setup() {
     showWait();
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
-    Serial.print("Slave7 MAC: "); Serial.println(WiFi.macAddress());
+    Serial.print("Slave10 MAC: "); Serial.println(WiFi.macAddress());
     memset(&rxBuf, 0, sizeof(rxBuf));
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW FAILED");
     } else {
         esp_now_register_recv_cb(onReceive);
-        Serial.println("Slave 7 v1.0 ready — 64x16 Fouls-B top row");
+        Serial.println("Slave 10 v2.0 ready — 64x16 Quarter bottom row");
     }
 }
 
@@ -108,5 +107,5 @@ void loop() {
     if (!newData) return;
     newData = false;
     if (!connected) { connected = true; Serial.println("Master connected"); }
-    drawTop(rxBuf.foulsB);
+    drawBottom(rxBuf.quarter);
 }

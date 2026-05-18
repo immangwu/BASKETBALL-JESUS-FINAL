@@ -73,6 +73,7 @@ int lastFoulsA     = -1, lastFoulsB     = -1;
 int lastShotSecs   = -1, lastShotTenths = -1;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) { memcpy(&rxBuf, data, sizeof(rxBuf)); newData = true; }
 }
 
@@ -108,19 +109,19 @@ void drawFoulsZone(int zoneX, int fouls) {
 // ── Shot clock zone ───────────────────────────────────────────────────────────
 void drawShotClockZone(int secs, int tenths) {
     clearZone(CLOCK_X);
-    drawCentred("SHOT CLOCK", CLOCK_X, ZONE_W, 0, C_CYAN, 1);
+    drawCentred("SHOT CLOCK", CLOCK_X, ZONE_W, 0, C_RED, 1);
 
-    if (secs >= 10) {
+    if (secs > 5) {
         char buf[4]; snprintf(buf, sizeof(buf), "%d", secs);
-        drawCentred(buf, CLOCK_X, ZONE_W, 8, C_CYAN, 3);
+        drawCentred(buf, CLOCK_X, ZONE_W, 8, C_RED, 3);
     } else {
         char ss[3]; snprintf(ss, sizeof(ss), "%d", secs);
         char tt[4]; snprintf(tt, sizeof(tt), ".%d", tenths);
-        int wSS    = 6 * 3;                         // 18 px (1 digit × size 3)
-        int wTT    = (int)strlen(tt) * 6 * 2;        // 24 px (size 2)
+        int wSS    = 6 * 3;
+        int wTT    = (int)strlen(tt) * 6 * 2;
         int totalW = wSS + wTT;
         int x0     = CLOCK_X + max(0, (ZONE_W - totalW) / 2);
-        display.setTextSize(3); display.setTextColor(C_CYAN); display.setTextWrap(false);
+        display.setTextSize(3); display.setTextColor(C_RED); display.setTextWrap(false);
         display.setCursor(x0, 8);
         display.print(ss);
         display.setTextSize(2);
@@ -205,7 +206,7 @@ void loop() {
         Serial.printf("Fouls B: %d\n", rxBuf.foulsB);
     }
     if (rxBuf.shotSecs != lastShotSecs ||
-        (rxBuf.shotSecs < 10 && rxBuf.shotTenths != lastShotTenths)) {
+        (rxBuf.shotSecs <= 5 && rxBuf.shotTenths != lastShotTenths)) {
         lastShotSecs   = rxBuf.shotSecs;
         lastShotTenths = rxBuf.shotTenths;
         drawShotClockZone(rxBuf.shotSecs, rxBuf.shotTenths);

@@ -72,6 +72,7 @@ volatile bool newData   = false;
 bool          connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) {
         memcpy(&rxBuf, data, sizeof(rxBuf));
         newData = true;
@@ -91,13 +92,7 @@ void drawTop(int secs, int tenths) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
 
-    uint16_t col = (secs <= 5) ? C_RED : C_BLUE;
-
-    // "SC" label — size 1, top-left corner
-    display.setTextSize(1);
-    display.setTextColor(col);
-    display.setCursor(0, 0);
-    display.print("SC");
+    uint16_t col = C_RED;
 
     // Large digit — size 3, top half visible on this panel
     display.setTextSize(3);

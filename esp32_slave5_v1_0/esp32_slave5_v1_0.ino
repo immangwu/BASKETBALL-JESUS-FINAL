@@ -73,6 +73,7 @@ volatile bool newData   = false;
 bool          connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) {
         memcpy(&rxBuf, data, sizeof(rxBuf));
         newData = true;
@@ -80,34 +81,19 @@ void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
 }
 
 // ── Draw top row ──────────────────────────────────────────────────────────────
-//   "FA" label  : size 1, top-left (x=0, y=0)
-//   Foul digit  : size 3 (18×24 px), centered in 64 px
-//                 Cursor y=0 → top 16 px visible; bottom 8 px on Slave 6
-//   fouls 0-4   : GREEN
-//   fouls ≥ 5   : RED
+//   Shows "TEAM FOULS A" label centered; number is on Slave 6 below.
+//   fouls 0-4 : GREEN    fouls ≥ 5 : RED
 void drawTop(int fouls) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
 
     uint16_t col = (fouls >= FOULS_MAX) ? C_RED : C_GREEN;
 
-    // "FA" label — size 1, top-left corner
     display.setTextSize(1);
     display.setTextColor(col);
-    display.setCursor(0, 0);
-    display.print("FA");
-
-    // Large foul digit — size 3, top half visible on this panel
-    display.setTextSize(3);
-    display.setTextColor(col);
-
-    char buf[3];
-    snprintf(buf, sizeof(buf), "%d", fouls);  // "0".."5"
-
-    int tw = (int)strlen(buf) * 18;           // 18 px per char at size 3
-    int tx = (64 - tw) / 2;
-    display.setCursor(tx, 0);
-    display.print(buf);
+    // "TEAM FOULS" = 10 chars × 6 px = 60 px → x = (64-60)/2 = 2
+    display.setCursor(2, 4);
+    display.print("TEAM FOULS");
 }
 
 // ── WAIT screen ───────────────────────────────────────────────────────────────

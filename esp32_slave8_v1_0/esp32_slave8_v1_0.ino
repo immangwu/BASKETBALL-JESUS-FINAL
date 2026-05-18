@@ -51,19 +51,21 @@ typedef struct __attribute__((packed)) {
 BoardData rxBuf; volatile bool newData = false; bool connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) { memcpy(&rxBuf, data, sizeof(rxBuf)); newData = true; }
 }
 
 void drawBottom(int fouls) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
-    display.setTextSize(3);
+    display.setTextSize(2);
     uint16_t col = (fouls >= FOULS_MAX) ? C_RED : C_GREEN;
     display.setTextColor(col);
     char buf[3];
     snprintf(buf, sizeof(buf), "%d", fouls);
-    int tx = (64 - (int)strlen(buf) * 18) / 2;
-    display.setCursor(tx, -16);
+    int tw = (int)strlen(buf) * 12;           // 12 px per char at size 2
+    int tx = (64 - tw) / 2;
+    display.setCursor(tx, 0);
     display.print(buf);
 }
 

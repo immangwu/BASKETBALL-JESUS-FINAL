@@ -142,6 +142,10 @@ void loop() {
     } else if (line.startsWith("S,")) {
       parseS(line);
       esp_now_send(broadcastAddr, (uint8_t*)&txData, sizeof(txData));
+    } else if (line.startsWith("R")) {
+      uint8_t magic = 0xAA;
+      esp_now_send(broadcastAddr, &magic, 1);
+      Serial.println("RESET broadcast sent");
     }
   }
 }

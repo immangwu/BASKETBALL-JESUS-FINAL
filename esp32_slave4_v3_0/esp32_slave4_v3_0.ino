@@ -71,6 +71,7 @@ volatile bool newData   = false;
 bool          connected = false;
 
 void onReceive(const uint8_t* mac, const uint8_t* data, int len) {
+    if (len == 1 && data[0] == 0xAA) { ESP.restart(); return; }
     if (len == sizeof(BoardData)) {
         memcpy(&rxBuf, data, sizeof(rxBuf));
         newData = true;
@@ -90,7 +91,7 @@ void drawBottom(int secs, int tenths) {
     display.fillRect(0, 0, 64, 16, C_BLACK);
     display.setTextWrap(false);
 
-    uint16_t col = (secs <= 5) ? C_RED : C_BLUE;
+    uint16_t col = C_RED;
 
     // Bottom half of large digit
     display.setTextSize(3);
@@ -104,8 +105,8 @@ void drawBottom(int secs, int tenths) {
     display.setCursor(tx, -16);               // shift up 16 px → bottom 8 px visible
     display.print(buf);
 
-    // Tenths subscript — only when < 10 s
-    if (secs < 10) {
+    // Tenths subscript — only when <= 5 s
+    if (secs <= 5) {
         char sub[3];
         snprintf(sub, sizeof(sub), ".%d", tenths);   // ".2"
         display.setTextSize(2);               // size 2 = 12x16 px, full panel height
