@@ -1419,43 +1419,64 @@ class ScoreboardApp(QMainWindow):
         # GPIO pin diagram
         pg = QGroupBox("GPIO Pin Map  (Raspberry Pi BCM)")
         pl = QVBoxLayout(pg)
+        def _pr(fn, bcm, phy, col="#f1f5f9"):
+            return (f"<tr><td style='padding:3px 16px 3px 4px;color:{col};'>{fn}</td>"
+                    f"<td style='padding:3px 16px;color:{col};'>{bcm}</td>"
+                    f"<td style='padding:3px;color:{col};'>{phy}</td></tr>")
+        def _ph(text):
+            return (f"<tr><td colspan='3' style='padding:6px 4px 2px 4px;"
+                    f"color:#fbbf24;font-weight:bold;font-size:12px;"
+                    f"letter-spacing:1px;'>{text}</td></tr>")
+        CA = "#4ade80"   # Team A green
+        CB = "#60a5fa"   # Team B blue
+        CW = "#f1f5f9"   # white/default
+        CY = "#fbbf24"   # amber / new pins
         pin_info = (
-            "<table style='font-size:13px;color:#f1f5f9;border-collapse:collapse;'>"
-            "<tr><th style='text-align:left;padding:4px 16px 4px 4px;"
-            "color:#fbbf24;'>Function</th>"
+            "<table style='font-size:13px;color:#f1f5f9;border-collapse:collapse;width:100%;'>"
+            "<tr>"
+            "<th style='text-align:left;padding:4px 16px 4px 4px;color:#fbbf24;'>Function</th>"
             "<th style='padding:4px 16px;color:#fbbf24;'>BCM</th>"
-            "<th style='padding:4px 4px;color:#fbbf24;'>Physical</th></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Game Clock START</td>"
-            "<td style='padding:3px 16px;'>17</td><td style='padding:3px;'>11</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Game Clock STOP</td>"
-            "<td style='padding:3px 16px;'>27</td><td style='padding:3px;'>13</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Shot Clock 24s</td>"
-            "<td style='padding:3px 16px;'>22</td><td style='padding:3px;'>15</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Shot Clock START</td>"
-            "<td style='padding:3px 16px;'>23</td><td style='padding:3px;'>16</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Shot Clock STOP</td>"
-            "<td style='padding:3px 16px;'>24</td><td style='padding:3px;'>18</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;'>Shot Clock 14s</td>"
-            "<td style='padding:3px 16px;'>25</td><td style='padding:3px;'>22</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;color:#4ade80;'>Team A  +1 score</td>"
-            "<td style='padding:3px 16px;color:#4ade80;'>4</td>"
-            "<td style='padding:3px;color:#4ade80;'>7</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;color:#4ade80;'>Team A  +2 score</td>"
-            "<td style='padding:3px 16px;color:#4ade80;'>5</td>"
-            "<td style='padding:3px;color:#4ade80;'>29</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;color:#4ade80;'>Team A  +3 score</td>"
-            "<td style='padding:3px 16px;color:#4ade80;'>6</td>"
-            "<td style='padding:3px;color:#4ade80;'>31</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;color:#4ade80;'>Team A  Foul +</td>"
-            "<td style='padding:3px 16px;color:#4ade80;'>12</td>"
-            "<td style='padding:3px;color:#4ade80;'>32</td></tr>"
-            "<tr><td style='padding:3px 16px 3px 4px;color:#94a3b8;'>GND (any)</td>"
-            "<td style='padding:3px 16px;color:#94a3b8;'>—</td>"
-            "<td style='padding:3px;color:#94a3b8;'>6/9/14/20/25/30/34/39</td></tr>"
-            "</table>"
-            "<p style='color:#94a3b8;font-size:12px;margin-top:8px;'>"
-            "Wire: one side of button → GPIO pin, other side → GND. "
-            "Internal pull-up enabled. Button press = LOW (falling edge).</p>"
+            "<th style='padding:4px 4px;color:#fbbf24;'>Physical Pin</th>"
+            "</tr>"
+            + _ph("── GAME CLOCK ──────────────────────────")
+            + _pr("Game Clock  START",   17, 11)
+            + _pr("Game Clock  STOP",    27, 13)
+            + _pr("Game Clock  RESET",    8, 24, CY)
+            + _ph("── SHOT CLOCK ──────────────────────────")
+            + _pr("Shot Clock  RESET 24s", 22, 15)
+            + _pr("Shot Clock  START",    23, 16)
+            + _pr("Shot Clock  STOP",     24, 18)
+            + _pr("Shot Clock  RESET 14s",25, 22)
+            + _ph("── TEAM A (green) ──────────────────────")
+            + _pr("Team A  +1 score",  4,  7,  CA)
+            + _pr("Team A  +2 score",  5,  29, CA)
+            + _pr("Team A  +3 score",  6,  31, CA)
+            + _pr("Team A  −1 score", 18,  12, CA)
+            + _pr("Team A  Foul  +",  12,  32, CA)
+            + _pr("Team A  Foul  −",  21,  40, CA)
+            + _pr("Team A  Possession", 10, 19, CA)
+            + _pr("Team A  Timeout",    2,   3, CA)
+            + _ph("── TEAM B (blue) ───────────────────────")
+            + _pr("Team B  +1 score", 13,  33, CB)
+            + _pr("Team B  +2 score", 16,  36, CB)
+            + _pr("Team B  +3 score", 19,  35, CB)
+            + _pr("Team B  −1 score", 20,  38, CB)
+            + _pr("Team B  Foul  +",  26,  37, CB)
+            + _pr("Team B  Foul  −",   9,  21, CB)
+            + _pr("Team B  Possession",11,  23, CB)
+            + _pr("Team B  Timeout",   3,   5, CB)
+            + _ph("── MATCH CONTROL ───────────────────────")
+            + _pr("Quarter  +1",        7,  26, CY)
+            + _pr("YES VISIBLE",       14,   8, CY)
+            + _pr("START MATCH",       15,  10, CY)
+            + _ph("── GROUND ──────────────────────────────")
+            + _pr("GND  (use any)", "—", "6 / 9 / 14 / 20 / 25 / 30 / 34 / 39", "#94a3b8")
+            + "</table>"
+            "<p style='color:#94a3b8;font-size:12px;margin-top:10px;'>"
+            "Wiring: one side of button → GPIO pin, other side → GND.<br>"
+            "Pull-up enabled — button press = LOW signal.<br>"
+            "<span style='color:#fbbf24;'>★ GPIO 14 &amp; 15 (physical 8 &amp; 10):</span>"
+            " disable UART console first via raspi-config → Interface → Serial Port.</p>"
         )
         pin_lbl = QLabel(pin_info)
         pin_lbl.setStyleSheet(f"padding:10px;background:{CARD};border-radius:8px;")
