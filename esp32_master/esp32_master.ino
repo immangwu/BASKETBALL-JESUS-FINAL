@@ -23,7 +23,7 @@
 uint8_t broadcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 typedef struct __attribute__((packed)) {
-  char eventName[32];
+  char eventName[64];
   char teamA[16];
   char teamB[16];
   int  scoreA,     scoreB;
@@ -36,8 +36,15 @@ typedef struct __attribute__((packed)) {
   int  clockRunning;
   int  shotSecs,   shotTenths;
   int  shotRunning;
-  int  eventScroll;   // 0 = static display, 1 = scrolling display
+  int  eventScroll;
+  char marketingText[32];
 } BoardData;
+
+typedef struct __attribute__((packed)) {
+  uint8_t type;
+  int     clockSecs;
+  int     clockTenths;
+} ClockFeedback;
 
 BoardData txData;
 
@@ -57,14 +64,15 @@ int splitCSV(const String& s, String tokens[], int maxTokens) {
 
 // ── Packet parsers ────────────────────────────────────────────────────────────
 void parseN(const String& line) {
-  // Tokens: N | eventName | teamA | teamB | eventScroll
-  String t[5];
-  int n = splitCSV(line, t, 5);
+  // Tokens: N | eventName | teamA | teamB | eventScroll | marketingText
+  String t[6];
+  int n = splitCSV(line, t, 6);
   if (n < 2) return;
   t[1].toCharArray(txData.eventName, sizeof(txData.eventName));
   if (n > 2) t[2].toCharArray(txData.teamA, sizeof(txData.teamA));
   if (n > 3) t[3].toCharArray(txData.teamB, sizeof(txData.teamB));
   txData.eventScroll = (n > 4) ? t[4].toInt() : 0;
+  if (n > 5) t[5].toCharArray(txData.marketingText, sizeof(txData.marketingText));
 }
 
 void parseS(const String& line) {
@@ -100,6 +108,17 @@ void onSent(const uint8_t* mac, esp_now_send_status_t status) {
   // Serial.println(status == ESP_NOW_SEND_SUCCESS ? "ESP-NOW OK" : "ESP-NOW FAIL");
 }
 
+// ── ESP-NOW receive callback — handles ClockFeedback from slaves ───────────────
+void onReceiveMaster(const uint8_t* mac, const uint8_t* data, int len) {
+  if (len == sizeof(ClockFeedback)) {
+    ClockFeedback fb;
+    memcpy(&fb, data, sizeof(fb));
+    if (fb.type == 0xCF) {
+      Serial.printf("C,%d,%d\n", fb.clockSecs, fb.clockTenths);
+    }
+  }
+}
+
 // ── Setup ─────────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(SERIAL_BAUD);
@@ -113,6 +132,7 @@ void setup() {
     ESP.restart();
   }
   esp_now_register_send_cb(onSent);
+  esp_now_register_recv_cb(onReceiveMaster);
 
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, broadcastAddr, 6);

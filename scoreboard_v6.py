@@ -16,7 +16,7 @@ New vs v5.0:
   - Version string       : PointiQ v6
 """
 
-import sys, platform, os
+import sys, platform, os, time
 import serial
 import serial.tools.list_ports
 from datetime import datetime
@@ -204,6 +204,7 @@ ORANGE = "#fb923c"
 RED    = "#f87171"
 VIOLET = "#c084fc"
 BLUE   = "#60a5fa"
+
 
 DIALOG_STYLE = f"""
     QDialog            {{ background:{BG}; color:{TEXT}; }}
@@ -657,6 +658,11 @@ class ScoreboardApp(QMainWindow):
         self.font_clock    = 3
         self.font_foul     = 2
         self.font_shot     = 2
+        # wall-time anchors for timestamp-based clock (set on every start/resume)
+        self._clock_wall_start   = 0.0
+        self._clock_start_tenths = 0
+        self._shot_wall_start    = 0.0
+        self._shot_start_tenths  = 0
         self.qtr_mins      = DEFAULT_QTR_MIN
         self.serial_port   = None
         self.port          = ""
@@ -883,7 +889,7 @@ class ScoreboardApp(QMainWindow):
         top.addWidget(ev_lbl)
 
         self.event_edit = QLineEdit(self.event_name)
-        self.event_edit.setMaxLength(32)
+        self.event_edit.setMaxLength(64)
         # Thin / Light font weight (200) for event name
         event_font = QFont()
         event_font.setWeight(QFont.Light)  # weight 25 maps to Light (closest to 200)
@@ -896,7 +902,7 @@ class ScoreboardApp(QMainWindow):
         self.event_edit.textChanged.connect(self._on_event_changed)
         top.addWidget(self.event_edit, 2)
 
-        self.event_char_lbl = QLabel(f"{len(self.event_name)}/32")
+        self.event_char_lbl = QLabel(f"{len(self.event_name)}")
         self.event_char_lbl.setStyleSheet(f"color:{TEXT3};font-size:12px;min-width:40px;")
         top.addWidget(self.event_char_lbl)
 
@@ -926,33 +932,56 @@ class ScoreboardApp(QMainWindow):
         top.addWidget(con_btn)
         lo.addLayout(top)
 
-        # ── Team names bar (single 32-char combined input) ────────────────
+        # ── Team names bar — Team A (max 11) + Team B (max 11) ───────────
         tbar = QHBoxLayout()
-        tbar.setSpacing(8)
-        tn_lbl = QLabel("TEAMS:")
-        tn_lbl.setStyleSheet(f"color:{TEXT3};font-weight:bold;font-size:13px;"
-                             f"letter-spacing:1px;min-width:60px;")
-        tbar.addWidget(tn_lbl)
+        tbar.setSpacing(10)
 
-        self.teams_edit = QLineEdit(self.team_names)
-        self.teams_edit.setMaxLength(32)
-        teams_font = QFont()
-        teams_font.setWeight(QFont.Light)
-        self.teams_edit.setFont(teams_font)
-        self.teams_edit.setStyleSheet(
+        ta_lbl = QLabel("TEAM A:")
+        ta_lbl.setStyleSheet(f"color:{TEXT3};font-weight:bold;font-size:13px;"
+                             f"letter-spacing:1px;min-width:68px;")
+        tbar.addWidget(ta_lbl)
+
+        self.team_a_edit = QLineEdit(self.team_a)
+        self.team_a_edit.setMaxLength(11)
+        self.team_a_edit.setStyleSheet(
             f"background:{CARD};border:1px solid {BORDER};color:{TEXT};"
-            f"font-size:15px;border-radius:8px;padding:8px;min-height:44px;"
+            f"font-size:18px;border-radius:8px;padding:8px;min-height:44px;"
         )
-        self.teams_edit.textChanged.connect(self._on_teams_changed)
-        tbar.addWidget(self.teams_edit, 2)
+        self.team_a_edit.textChanged.connect(self._on_team_a_changed)
+        tbar.addWidget(self.team_a_edit, 1)
 
-        self.teams_char_lbl = QLabel(f"{len(self.team_names)}/32")
-        self.teams_char_lbl.setStyleSheet(f"color:{TEXT3};font-size:12px;min-width:40px;")
-        tbar.addWidget(self.teams_char_lbl)
+        self.team_a_char_lbl = QLabel(f"{len(self.team_a)}/11")
+        self.team_a_char_lbl.setStyleSheet(f"color:{TEXT3};font-size:12px;min-width:36px;")
+        tbar.addWidget(self.team_a_char_lbl)
 
-        kb_tn = self._kb_btn()
-        kb_tn.clicked.connect(self._open_kb_teams)
-        tbar.addWidget(kb_tn)
+        kb_ta = self._kb_btn()
+        kb_ta.clicked.connect(self._open_kb_team_a)
+        tbar.addWidget(kb_ta)
+
+        tbar.addSpacing(16)
+
+        tb_lbl = QLabel("TEAM B:")
+        tb_lbl.setStyleSheet(f"color:{TEXT3};font-weight:bold;font-size:13px;"
+                             f"letter-spacing:1px;min-width:68px;")
+        tbar.addWidget(tb_lbl)
+
+        self.team_b_edit = QLineEdit(self.team_b)
+        self.team_b_edit.setMaxLength(11)
+        self.team_b_edit.setStyleSheet(
+            f"background:{CARD};border:1px solid {BORDER};color:{TEXT};"
+            f"font-size:18px;border-radius:8px;padding:8px;min-height:44px;"
+        )
+        self.team_b_edit.textChanged.connect(self._on_team_b_changed)
+        tbar.addWidget(self.team_b_edit, 1)
+
+        self.team_b_char_lbl = QLabel(f"{len(self.team_b)}/11")
+        self.team_b_char_lbl.setStyleSheet(f"color:{TEXT3};font-size:12px;min-width:36px;")
+        tbar.addWidget(self.team_b_char_lbl)
+
+        kb_tb = self._kb_btn()
+        kb_tb.clicked.connect(self._open_kb_team_b)
+        tbar.addWidget(kb_tb)
+
         ok_tn = self._ok_btn()
         ok_tn.clicked.connect(self._send_name)
         tbar.addWidget(ok_tn)
@@ -988,22 +1017,27 @@ class ScoreboardApp(QMainWindow):
         lo.setSpacing(8)
         lo.setContentsMargins(14, 14, 14, 14)
 
-        # Team label (static — name is set via the combined TEAMS bar)
-        team_hdr = QLabel(f"TEAM {side}")
+        team_hdr = QLabel(tname if tname.strip() else f"TEAM {side}")
         team_hdr.setAlignment(Qt.AlignCenter)
+        team_hdr.setFixedHeight(32)
         team_hdr.setStyleSheet(
-            f"color:{TEXT3};font-size:13px;font-weight:bold;letter-spacing:2px;"
-            f"padding:4px 0;"
+            f"color:{TEXT};font-size:22px;font-weight:bold;letter-spacing:1px;"
+            f"padding:0;"
         )
+        if is_a:
+            self.team_a_panel_hdr = team_hdr
+        else:
+            self.team_b_panel_hdr = team_hdr
         lo.addWidget(team_hdr)
 
-        # Score display — centered
+        # Score display — centered, fixed height matches clock_lbl in center panel
         score_lbl = QLabel("0")
         score_lbl.setAlignment(Qt.AlignCenter)
+        score_lbl.setFixedHeight(108)
         score_lbl.setStyleSheet(
             f"font-size:84px;font-weight:bold;color:{GREEN};"
             f"background:#0a1628;border-radius:12px;"
-            f"min-height:100px;padding:4px;"
+            f"padding:4px;"
         )
         if is_a:
             self.score_a_lbl = score_lbl
@@ -1129,30 +1163,34 @@ class ScoreboardApp(QMainWindow):
         lo.setSpacing(8)
         lo.setContentsMargins(14, 14, 14, 14)
 
-        # ── GAME CLOCK ────────────────────────────────────────────────────
-        # Bold "GAME CLOCK" label directly above the clock display
+        # ── GAME CLOCK header row (label + SET button on same line) ──────────
+        gc_top = QHBoxLayout(); gc_top.setContentsMargins(0, 0, 0, 0); gc_top.setSpacing(8)
         gc_hdr = QLabel("GAME CLOCK")
+        gc_hdr.setAlignment(Qt.AlignCenter)
+        gc_hdr.setFixedHeight(32)
         gc_hdr.setStyleSheet(
-            f"font-size:11px; font-weight:bold; color:{TEXT3}; letter-spacing:2px;"
+            f"font-size:9px;font-weight:bold;color:{AMBER};letter-spacing:2px;"
+            f"padding:0;"
         )
-        lo.addWidget(gc_hdr)
+        gc_top.addWidget(gc_hdr, 1)
+        set_clk = QPushButton("✏  SET")
+        set_clk.setFixedSize(58, 32)
+        set_clk.setStyleSheet(f"background:#78350f;color:#fef3c7;font-size:11px;"
+                              f"font-weight:bold;border-radius:6px;border:none;")
+        set_clk.clicked.connect(self._open_clock_dialog)
+        gc_top.addWidget(set_clk)
+        lo.addLayout(gc_top)
 
-        clk_row = QHBoxLayout(); clk_row.setSpacing(8)
+        # Clock label added directly (same as score_lbl in team panels — ensures alignment)
         self.clock_lbl = QLabel(self._fmt_clock())
         self.clock_lbl.setAlignment(Qt.AlignCenter)
+        self.clock_lbl.setFixedHeight(108)
         self.clock_lbl.setStyleSheet(
             f"font-size:58px;font-weight:bold;color:{AMBER};"
             f"background:#0a1628;border-radius:10px;"
-            f"min-width:180px;padding:4px 12px;"
+            f"padding:4px 12px;"
         )
-        clk_row.addWidget(self.clock_lbl, 1)
-        set_clk = QPushButton("✏  SET")
-        set_clk.setFixedSize(80, 58)
-        set_clk.setStyleSheet(f"background:#78350f;color:#fef3c7;font-size:13px;"
-                              f"font-weight:bold;border-radius:8px;border:none;")
-        set_clk.clicked.connect(self._open_clock_dialog)
-        clk_row.addWidget(set_clk)
-        lo.addLayout(clk_row)
+        lo.addWidget(self.clock_lbl)
 
         gc = QHBoxLayout(); gc.setSpacing(8)
         self.clk_start_btn = QPushButton("▶  START")
@@ -1391,6 +1429,7 @@ class ScoreboardApp(QMainWindow):
         lo.addLayout(br)
         return w
 
+
     # ── Tab 3: Settings ────────────────────────────────────────────────────
     def _make_settings_tab(self):
         outer = QScrollArea()
@@ -1617,17 +1656,29 @@ class ScoreboardApp(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────
     def _on_event_changed(self, t):
         self.event_name = t
-        self.event_char_lbl.setText(f"{len(t)}/32")
+        self.event_char_lbl.setText(f"{len(t)}")
+        self._send_name()
 
     def _on_event_scroll_changed(self, state):
         self.event_scroll = (state == Qt.Checked)
 
-    def _on_teams_changed(self, t):
-        self.team_names = t.ljust(32)[:32]
-        self.team_a = self.team_names[:16].rstrip()
-        self.team_b = self.team_names[16:32].rstrip()
-        if hasattr(self, "teams_char_lbl"):
-            self.teams_char_lbl.setText(f"{len(t)}/32")
+    def _on_team_a_changed(self, t):
+        self.team_a = t[:11]
+        self.team_names = f"{self.team_a:<16}{self.team_b:<16}"
+        if hasattr(self, "team_a_char_lbl"):
+            self.team_a_char_lbl.setText(f"{len(self.team_a)}/11")
+        if hasattr(self, "team_a_panel_hdr"):
+            self.team_a_panel_hdr.setText(self.team_a if self.team_a.strip() else "TEAM A")
+        self._send_name()
+
+    def _on_team_b_changed(self, t):
+        self.team_b = t[:11]
+        self.team_names = f"{self.team_a:<16}{self.team_b:<16}"
+        if hasattr(self, "team_b_char_lbl"):
+            self.team_b_char_lbl.setText(f"{len(self.team_b)}/11")
+        if hasattr(self, "team_b_panel_hdr"):
+            self.team_b_panel_hdr.setText(self.team_b if self.team_b.strip() else "TEAM B")
+        self._send_name()
 
     def _on_marketing_changed(self, t):
         self.marketing_text = t
@@ -1638,21 +1689,27 @@ class ScoreboardApp(QMainWindow):
     # Keyboard / Dialog openers
     # ─────────────────────────────────────────────────────────────────────
     def _open_kb_event(self):
-        text, ok = VirtualKeyboard.getText(self, "Enter Event Title", self.event_name, 32)
+        text, ok = VirtualKeyboard.getText(self, "Enter Event Title", self.event_name, 64)
         if ok:
             self.event_name = text
             self.event_edit.setText(text)
 
-    def _open_kb_teams(self):
-        text, ok = VirtualKeyboard.getText(self, "Enter Team Names (32 chars)",
-                                           self.team_names.rstrip(), 32)
+    def _open_kb_team_a(self):
+        text, ok = VirtualKeyboard.getText(self, "Team A Name", self.team_a, 11)
         if ok:
-            padded = text.ljust(32)[:32]
-            self.team_names = padded
-            self.team_a = padded[:16].rstrip()
-            self.team_b = padded[16:32].rstrip()
-            if hasattr(self, "teams_edit"):
-                self.teams_edit.setText(text)
+            self.team_a = text[:11]
+            self.team_names = f"{self.team_a:<16}{self.team_b:<16}"
+            if hasattr(self, "team_a_edit"):
+                self.team_a_edit.setText(self.team_a)
+            self._send_name()
+
+    def _open_kb_team_b(self):
+        text, ok = VirtualKeyboard.getText(self, "Team B Name", self.team_b, 11)
+        if ok:
+            self.team_b = text[:11]
+            self.team_names = f"{self.team_a:<16}{self.team_b:<16}"
+            if hasattr(self, "team_b_edit"):
+                self.team_b_edit.setText(self.team_b)
             self._send_name()
 
     def _open_clock_dialog(self):
@@ -1944,12 +2001,17 @@ class ScoreboardApp(QMainWindow):
             self._log("⚠ Click YES VISIBLE first", "warn"); return
         if not self.clock_running and (self.clock_secs > 0 or self.clock_tenths > 0):
             self.clock_running = True
+            self._clock_wall_start   = time.time()
+            self._clock_start_tenths = self.clock_secs * 10 + self.clock_tenths
             self._log("Game clock STARTED"); self._send_score()
 
     def _stop_clock(self):
         if self.clock_running:
             self.clock_running = False
             self._log("Game clock STOPPED"); self._send_score()
+            if self.shot_running:
+                self.shot_running = False
+                self._log("Shot clock STOPPED (game clock stopped)")
 
     def _reset_clock(self):
         self.clock_running = False
@@ -1961,8 +2023,12 @@ class ScoreboardApp(QMainWindow):
     def _start_shot(self):
         if not self.board_confirmed:
             self._log("⚠ Click YES VISIBLE first", "warn"); return
+        if not self.clock_running:
+            self._log("⚠ Start game clock first — shot clock requires game clock running", "warn"); return
         if not self.shot_running and (self.shot_secs > 0 or self.shot_tenths > 0):
             self.shot_running = True
+            self._shot_wall_start   = time.time()
+            self._shot_start_tenths = self.shot_secs * 10 + self.shot_tenths
             self._log("Shot clock STARTED"); self._send_score()
 
     def _stop_shot(self):
@@ -1973,9 +2039,16 @@ class ScoreboardApp(QMainWindow):
     def _reset_shot(self, secs):
         self.shot_secs   = secs
         self.shot_tenths = 0
-        self.shot_running = False
+        if self.clock_running:
+            self.shot_running = True
+            self._shot_wall_start   = time.time()
+            self._shot_start_tenths = secs * 10
+            self._log(f"Shot clock → {secs}s, auto-started")
+        else:
+            self.shot_running = False
+            self._log(f"Shot clock → {secs}s (game clock stopped — not started)")
         self.shot_lbl.setText(self._fmt_shot())
-        self._log(f"Shot clock reset to {secs}s"); self._send_score()
+        self._send_score()
 
     # ─────────────────────────────────────────────────────────────────────
     # 100 ms tick
@@ -1996,37 +2069,42 @@ class ScoreboardApp(QMainWindow):
                 self.break_count_lbl.setText(f"{m}:{s:02d}")
             changed = True
 
-        # Game clock
-        if self.clock_running and (self.clock_secs > 0 or self.clock_tenths > 0):
-            self.clock_tenths -= 1
-            if self.clock_tenths < 0:
-                self.clock_tenths = 9; self.clock_secs -= 1
-            if self.clock_secs <= 0 and self.clock_tenths <= 0:
-                self.clock_secs = 0; self.clock_tenths = 0
-                self.clock_running = False
-                self._log("⏰ Game clock EXPIRED")
-                self._on_clock_expired()
+        # Game clock — timestamp-based: avoids QTimer jitter accumulation
+        if self.clock_running:
+            elapsed_t    = int((time.time() - self._clock_wall_start) * 10 + 0.5)
+            remaining_t  = max(0, self._clock_start_tenths - elapsed_t)
+            self.clock_secs   = remaining_t // 10
+            self.clock_tenths = remaining_t % 10
             self.clock_lbl.setText(self._fmt_clock())
             self._update_clock_debug()
             changed = True
-
-            # Q4 2-minute rule
-            if self.quarter == 4 and not self.q4_2min_done:
+            if remaining_t == 0:
+                self.clock_running = False
+                self._log("⏰ Game clock EXPIRED")
+                if self.shot_running:
+                    self.shot_running = False
+                    self._log("Shot clock STOPPED (game clock expired)")
+                self._on_clock_expired()
+            elif self.quarter == 4 and not self.q4_2min_done:
                 if self.clock_secs < (self.qtr_mins * 60 - 120):
                     self.q4_2min_done = True
                     self._apply_q4_timeout_rule()
 
-        # Shot clock
-        if self.shot_running and (self.shot_secs > 0 or self.shot_tenths > 0):
-            self.shot_tenths -= 1
-            if self.shot_tenths < 0:
-                self.shot_tenths = 9; self.shot_secs -= 1
-            if self.shot_secs <= 0 and self.shot_tenths <= 0:
-                self.shot_secs = 0; self.shot_tenths = 0
-                self.shot_running = False
-                self._log("⏰ Shot clock EXPIRED")
+        # Drive board clock display from software at 100ms intervals
+        if self.clock_running:
+            self._send_score()
+
+        # Shot clock — timestamp-based
+        if self.shot_running:
+            elapsed_t   = int((time.time() - self._shot_wall_start) * 10 + 0.5)
+            remaining_t = max(0, self._shot_start_tenths - elapsed_t)
+            self.shot_secs   = remaining_t // 10
+            self.shot_tenths = remaining_t % 10
             self.shot_lbl.setText(self._fmt_shot())
             self._update_shot_debug()
+            if remaining_t == 0:
+                self.shot_running = False
+                self._log("⏰ Shot clock EXPIRED")
 
     def _update_clock_debug(self):
         if not hasattr(self, "dbg_clock"): return
