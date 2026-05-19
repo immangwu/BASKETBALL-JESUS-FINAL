@@ -566,6 +566,7 @@ class ScoreboardApp(QMainWindow):
         self.event_name    = "BASKETBALL 2026"
         self.team_a        = "TEAM A"
         self.team_b        = "TEAM B"
+        self.team_names    = f"{self.team_a:<16}{self.team_b:<16}"  # 32-char combined
         self.score_a       = 0
         self.score_b       = 0
         self.fouls_a       = 0
@@ -838,6 +839,39 @@ class ScoreboardApp(QMainWindow):
         top.addWidget(con_btn)
         lo.addLayout(top)
 
+        # ── Team names bar (single 32-char combined input) ────────────────
+        tbar = QHBoxLayout()
+        tbar.setSpacing(8)
+        tn_lbl = QLabel("TEAMS:")
+        tn_lbl.setStyleSheet(f"color:{TEXT3};font-weight:bold;font-size:13px;"
+                             f"letter-spacing:1px;min-width:60px;")
+        tbar.addWidget(tn_lbl)
+
+        self.teams_edit = QLineEdit(self.team_names)
+        self.teams_edit.setMaxLength(32)
+        teams_font = QFont()
+        teams_font.setWeight(QFont.Light)
+        self.teams_edit.setFont(teams_font)
+        self.teams_edit.setStyleSheet(
+            f"background:{CARD};border:1px solid {BORDER};color:{TEXT};"
+            f"font-size:15px;border-radius:8px;padding:8px;min-height:44px;"
+        )
+        self.teams_edit.textChanged.connect(self._on_teams_changed)
+        tbar.addWidget(self.teams_edit, 2)
+
+        self.teams_char_lbl = QLabel(f"{len(self.team_names)}/32")
+        self.teams_char_lbl.setStyleSheet(f"color:{TEXT3};font-size:12px;min-width:40px;")
+        tbar.addWidget(self.teams_char_lbl)
+
+        kb_tn = self._kb_btn()
+        kb_tn.clicked.connect(self._open_kb_teams)
+        tbar.addWidget(kb_tn)
+        ok_tn = self._ok_btn()
+        ok_tn.clicked.connect(self._send_name)
+        tbar.addWidget(ok_tn)
+        tbar.addStretch()
+        lo.addLayout(tbar)
+
         # ── 3-column main panel ────────────────────────────────────────────
         cols = QHBoxLayout()
         cols.setSpacing(10)
@@ -867,42 +901,14 @@ class ScoreboardApp(QMainWindow):
         lo.setSpacing(8)
         lo.setContentsMargins(14, 14, 14, 14)
 
-        # Team name — right-aligned, editable, max 15 chars
-        nr = QHBoxLayout()
-        nr.setSpacing(6)
-        name_edit = QLineEdit(tname)
-        name_edit.setMaxLength(15)
-        name_edit.setAlignment(Qt.AlignRight)   # right-aligned per spec
-        name_edit.setStyleSheet(
-            f"background:#0f172a;border:2px solid {BORDER};color:{TEXT};"
-            f"font-size:20px;font-weight:bold;border-radius:8px;padding:8px;"
-            f"min-height:50px;"
+        # Team label (static — name is set via the combined TEAMS bar)
+        team_hdr = QLabel(f"TEAM {side}")
+        team_hdr.setAlignment(Qt.AlignCenter)
+        team_hdr.setStyleSheet(
+            f"color:{TEXT3};font-size:13px;font-weight:bold;letter-spacing:2px;"
+            f"padding:4px 0;"
         )
-        if is_a:
-            self.team_a_edit = name_edit
-            name_edit.textChanged.connect(lambda t: self._on_team_changed("A", t))
-        else:
-            self.team_b_edit = name_edit
-            name_edit.textChanged.connect(lambda t: self._on_team_changed("B", t))
-        nr.addWidget(name_edit, 1)
-
-        # Char counter shows "X/15" (remaining out of 15)
-        char_lbl = QLabel("15")
-        char_lbl.setStyleSheet(f"color:{TEXT3};font-size:11px;min-width:32px;")
-        if is_a:
-            self.team_a_char_lbl = char_lbl
-        else:
-            self.team_b_char_lbl = char_lbl
-        nr.addWidget(char_lbl)
-
-        kb = self._kb_btn()
-        kb.clicked.connect(lambda _, s=side: self._open_kb_team(s))
-        nr.addWidget(kb)
-        ok_t = self._ok_btn()
-        ok_t.clicked.connect(self._send_name)
-        nr.addWidget(ok_t)
-        lo.addLayout(nr)
-        self._update_team_char_lbl(side, tname)
+        lo.addWidget(team_hdr)
 
         # Score display — centered
         score_lbl = QLabel("0")
@@ -1508,17 +1514,12 @@ class ScoreboardApp(QMainWindow):
     def _on_event_scroll_changed(self, state):
         self.event_scroll = (state == Qt.Checked)
 
-    def _on_team_changed(self, side, t):
-        setattr(self, f"team_{side.lower()}", t)
-        self._update_team_char_lbl(side, t)
-
-    def _update_team_char_lbl(self, side, t):
-        lbl = self.team_a_char_lbl if side == "A" else self.team_b_char_lbl
-        remaining = 15 - len(t)
-        lbl.setText(f"{remaining}/15")
-        lbl.setStyleSheet(
-            f"color:{'#f87171' if remaining <= 2 else TEXT3};font-size:11px;min-width:32px;"
-        )
+    def _on_teams_changed(self, t):
+        self.team_names = t.ljust(32)[:32]
+        self.team_a = self.team_names[:16].rstrip()
+        self.team_b = self.team_names[16:32].rstrip()
+        if hasattr(self, "teams_char_lbl"):
+            self.teams_char_lbl.setText(f"{len(t)}/32")
 
     def _on_marketing_changed(self, t):
         self.marketing_text = t
@@ -1534,13 +1535,16 @@ class ScoreboardApp(QMainWindow):
             self.event_name = text
             self.event_edit.setText(text)
 
-    def _open_kb_team(self, side):
-        current = self.team_a if side == "A" else self.team_b
-        text, ok = VirtualKeyboard.getText(self, f"Enter Team {side} Name", current, 15)
+    def _open_kb_teams(self):
+        text, ok = VirtualKeyboard.getText(self, "Enter Team Names (32 chars)",
+                                           self.team_names.rstrip(), 32)
         if ok:
-            setattr(self, f"team_{side.lower()}", text)
-            edit = self.team_a_edit if side == "A" else self.team_b_edit
-            edit.setText(text)
+            padded = text.ljust(32)[:32]
+            self.team_names = padded
+            self.team_a = padded[:16].rstrip()
+            self.team_b = padded[16:32].rstrip()
+            if hasattr(self, "teams_edit"):
+                self.teams_edit.setText(text)
             self._send_name()
 
     def _open_clock_dialog(self):
@@ -1915,10 +1919,6 @@ class ScoreboardApp(QMainWindow):
                 self._log("⏰ Shot clock EXPIRED")
             self.shot_lbl.setText(self._fmt_shot())
             self._update_shot_debug()
-            changed = True
-
-        if changed:
-            self._send_score()
 
     def _update_clock_debug(self):
         if not hasattr(self, "dbg_clock"): return
@@ -2012,7 +2012,11 @@ class ScoreboardApp(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────
     def _send_name(self):
         scroll_flag = 1 if self.event_scroll else 0
-        pkt = f"N,{self.event_name},{self.team_a},{self.team_b},{scroll_flag},{self.marketing_text}\n"
+        # Split 32-char team_names: first 16 → teamA field, last 16 → teamB field
+        tn = self.team_names.ljust(32)[:32]
+        ta = tn[:16].rstrip()
+        tb = tn[16:32].rstrip()
+        pkt = f"N,{self.event_name},{ta},{tb},{scroll_flag},{self.marketing_text}\n"
         if not self.serial_port or not self.serial_port.is_open:
             self._log("⚠ Serial not connected", "warn"); return
         try:
