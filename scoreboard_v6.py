@@ -347,6 +347,77 @@ class VirtualKeyboard(QDialog):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  SETTINGS PASSWORD DIALOG
+# ═════════════════════════════════════════════════════════════════════════════
+class PasswordDialog(QDialog):
+    _PASSWORD = "hive"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setStyleSheet(DIALOG_STYLE)
+        self._build()
+
+    def _build(self):
+        lo = QVBoxLayout(self)
+        lo.setSpacing(14)
+        lo.setContentsMargins(32, 32, 32, 32)
+
+        t = QLabel("🔒  SETTINGS ACCESS")
+        t.setAlignment(Qt.AlignCenter)
+        t.setStyleSheet(f"color:{AMBER};font-size:20px;font-weight:bold;")
+        lo.addWidget(t)
+
+        sub = QLabel("Enter password to continue")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setStyleSheet(f"color:{TEXT3};font-size:13px;")
+        lo.addWidget(sub)
+
+        self.pw_edit = QLineEdit()
+        self.pw_edit.setEchoMode(QLineEdit.Password)
+        self.pw_edit.setPlaceholderText("Password…")
+        self.pw_edit.setStyleSheet(
+            f"background:{CARD};border:2px solid {BORDER};border-radius:8px;"
+            f"color:{TEXT};font-size:20px;padding:10px;min-height:54px;"
+        )
+        self.pw_edit.returnPressed.connect(self._try_accept)
+        lo.addWidget(self.pw_edit)
+
+        self.err_lbl = QLabel("")
+        self.err_lbl.setAlignment(Qt.AlignCenter)
+        self.err_lbl.setStyleSheet(f"color:{RED};font-size:13px;min-height:20px;")
+        lo.addWidget(self.err_lbl)
+
+        bot = QHBoxLayout()
+        bot.setSpacing(10)
+        can = QPushButton("✕  Cancel")
+        can.setFixedHeight(54)
+        can.setStyleSheet(f"background:#7f1d1d;color:#fecaca;font-weight:bold;"
+                          f"border-radius:8px;border:none;font-size:16px;")
+        can.clicked.connect(self.reject)
+        ok = QPushButton("✓  Enter")
+        ok.setFixedHeight(54)
+        ok.setStyleSheet(f"background:#14532d;color:#bbf7d0;font-weight:bold;"
+                         f"border-radius:8px;border:none;font-size:16px;")
+        ok.clicked.connect(self._try_accept)
+        bot.addWidget(can); bot.addWidget(ok)
+        lo.addLayout(bot)
+        self.setFixedWidth(400)
+
+    def _try_accept(self):
+        if self.pw_edit.text() == self._PASSWORD:
+            self.accept()
+        else:
+            self.err_lbl.setText("Incorrect password — try again")
+            self.pw_edit.clear()
+            self.pw_edit.setStyleSheet(
+                f"background:{CARD};border:2px solid {RED};border-radius:8px;"
+                f"color:{TEXT};font-size:20px;padding:10px;min-height:54px;"
+            )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  GAME CLOCK DIALOG  — simplified: only + and − per unit
 # ═════════════════════════════════════════════════════════════════════════════
 class GameClockDialog(QDialog):
@@ -601,6 +672,7 @@ class ScoreboardApp(QMainWindow):
         # v6 additions
         self.event_scroll    = False   # "Scroll on display" checkbox state
         self.marketing_text  = ""      # Marketing Panel (Panel 10) text
+        self._prev_tab       = 0       # track last non-settings tab for password guard
 
         self._timer = QTimer()
         self._timer.setInterval(100)
@@ -657,6 +729,20 @@ class ScoreboardApp(QMainWindow):
             except Exception:
                 pass
 
+    # ── Settings tab password guard ────────────────────────────────────────
+    def _on_tab_changed(self, idx):
+        SETTINGS_IDX = 2
+        if idx == SETTINGS_IDX:
+            dlg = PasswordDialog(self)
+            if dlg.exec_() != QDialog.Accepted:
+                # Wrong password or cancelled — go back silently
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(self._prev_tab)
+                self.tabs.blockSignals(False)
+                return
+        else:
+            self._prev_tab = idx
+
     # ─────────────────────────────────────────────────────────────────────
     # UI BUILD
     # ─────────────────────────────────────────────────────────────────────
@@ -682,6 +768,7 @@ class ScoreboardApp(QMainWindow):
         self.tabs.addTab(self._make_scoreboard_tab(), "🏀  Scoreboard")
         self.tabs.addTab(self._make_debug_tab(),      "🔧  Debug")
         self.tabs.addTab(self._make_settings_tab(),   "⚙  Settings")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         vbox.addWidget(self.tabs)
 
         self.setStyleSheet(f"""
